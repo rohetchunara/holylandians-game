@@ -8,6 +8,14 @@ export interface Profile {
   is_banned: boolean;
   last_seen: string;
   created_at: string;
+  email: string | null;
+  bio: string | null;
+  gpa: string | null;
+  grade: string | null;
+  student_status: string | null;
+  verified: boolean;
+  verification_requested: boolean;
+  name_locked: boolean;
 }
 
 export interface ChatMessage {
@@ -95,8 +103,6 @@ export interface TraitorPlayer {
   voted_for: string | null;
   created_at: string;
 }
-
-// ===== EXPANSION TYPES =====
 
 export interface Group {
   id: string;
@@ -216,5 +222,21 @@ export interface QuizAttempt {
   profile_name: string;
   score: number;
   total_questions: number;
+  created_at: string;
+}
+
+export interface Follow {
+  id: string;
+  follower_id: string;
+  following_id: string;
+  created_at: string;
+}
+
+export interface VerificationRequest {
+  id: string;
+  profile_id: string;
+  profile_name: string;
+  status: string;
+  payment_ref: string | null;
   created_at: string;
 }

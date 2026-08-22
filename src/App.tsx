@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UserProvider, useUser } from './context/UserContext';
-import PasswordGate from './components/PasswordGate';
+import AuthScreen from './components/AuthScreen';
 import ProfileSetup from './components/ProfileSetup';
 import Layout, { type Tab } from './components/Layout';
 import ChatRoom from './components/ChatRoom';
@@ -15,13 +15,20 @@ import MarketplacePage from './components/MarketplacePage';
 import DirectMessagesPage from './components/DirectMessagesPage';
 import QuizzesPage from './components/QuizzesPage';
 import AdminModal from './components/AdminModal';
-import { isAuthed } from './lib/storage';
+import { supabase } from './lib/supabase';
 
 function AppInner() {
   const { user, loading, setUser } = useUser();
-  const [gatePassed, setGatePassed] = useState(() => isAuthed());
+  const [hasSession, setHasSession] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [showAdminModal, setShowAdminModal] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setHasSession(true);
+    })();
+  }, []);
 
   if (loading) {
     return (
@@ -31,8 +38,8 @@ function AppInner() {
     );
   }
 
-  if (!gatePassed) {
-    return <PasswordGate onUnlock={() => setGatePassed(true)} />;
+  if (!hasSession && !user) {
+    return <AuthScreen onAuthSuccess={() => setHasSession(true)} />;
   }
 
   if (!user) {

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import type { Profile } from '../lib/types';
 import { loadStoredUser, saveStoredUser, clearStoredUser } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -8,7 +9,7 @@ interface UserContextValue {
   loading: boolean;
   setUser: (user: Profile | null) => void;
   refreshUser: () => Promise<void>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
@@ -18,28 +19,50 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const stored = loadStoredUser();
-    if (stored) {
-      setUserState(stored);
-      (async () => {
-        try {
-          const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', stored.id)
-            .maybeSingle();
-          if (data) {
-            const fresh = data as Profile;
-            saveStoredUser(fresh);
-            setUserState(fresh);
-          }
-        } finally {
-          setLoading(false);
-        }
-      })();
-    } else {
+    let mounted = true;
+
+    const loadProfile = async (session: Session) => {
+      const userId = session.user.id;
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (!mounted) return;
+      if (data) {
+        const fresh = data as Profile;
+        saveStoredUser(fresh);
+        setUserState(fresh);
+      }
       setLoading(false);
-    }
+    };
+
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (session) {
+        await loadProfile(session);
+      } else {
+        const stored = loadStoredUser();
+        if (stored) setUserState(stored);
+        setLoading(false);
+      }
+    };
+
+    init();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      (async () => {
+        if (!session) {
+          clearStoredUser();
+          setUserState(null);
+          setLoading(false);
+          return;
+        }
+        await loadProfile(session);
+      })();
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const setUser = (u: Profile | null) => {
@@ -57,7 +80,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signOut = () => {
+  const signOut = async () => {
+    await supabase.auth.signOut();
     clearStoredUser();
     setUserState(null);
   };

@@ -1,7 +1,6 @@
 import type { Profile } from './types';
 
 const USER_KEY = 'holylandians_user';
-const AUTH_KEY = 'holylandians_authed';
 
 export function loadStoredUser(): Profile | null {
   try {
@@ -19,16 +18,4 @@ export function saveStoredUser(user: Profile): void {
 
 export function clearStoredUser(): void {
   localStorage.removeItem(USER_KEY);
-}
-
-export function isAuthed(): boolean {
-  return localStorage.getItem(AUTH_KEY) === '1';
-}
-
-export function setAuthed(): void {
-  localStorage.setItem(AUTH_KEY, '1');
-}
-
-export function clearAuth(): void {
-  localStorage.removeItem(AUTH_KEY);
 }
