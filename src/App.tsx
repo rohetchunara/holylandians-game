@@ -42,7 +42,7 @@ function AppInner() {
     return <AuthScreen onAuthSuccess={() => setHasSession(true)} />;
   }
 
-  if (!user) {
+  if (!user || !user.name) {
     return <ProfileSetup onComplete={(u) => setUser(u)} />;
   }
 

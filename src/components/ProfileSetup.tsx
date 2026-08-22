@@ -57,9 +57,11 @@ export default function ProfileSetup({ onComplete }: Props) {
     setCreating(true);
     setError('');
 
-    const { data, error: insertError } = await supabase
+    const { data, error: upsertError } = await supabase
       .from('profiles')
-      .update({
+      .upsert({
+        id: user.id,
+        email: user.email,
         name: name.trim(),
         color_theme: color,
         avatar_url: avatarUrl.trim() || null,
@@ -75,7 +77,7 @@ export default function ProfileSetup({ onComplete }: Props) {
       .maybeSingle();
 
     setCreating(false);
-    if (insertError || !data) { setError('Could not save profile. That name may already be taken.'); return; }
+    if (upsertError || !data) { setError('Could not save profile. That name may already be taken.'); return; }
     onComplete(data as Profile);
   };
 

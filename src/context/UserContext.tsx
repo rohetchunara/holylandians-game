@@ -23,7 +23,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const loadProfile = async (session: Session) => {
       const userId = session.user.id;
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      let data = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+        data = result.data;
+        if (data) break;
+        await new Promise((r) => setTimeout(r, 300));
+      }
       if (!mounted) return;
       if (data) {
         const fresh = data as Profile;
