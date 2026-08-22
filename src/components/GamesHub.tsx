@@ -1,147 +1,97 @@
-import { useState } from 'react';
-import { ArrowLeft, Plane, Users, ShieldAlert } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Gamepad2, Trophy, Play } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useUser } from '../context/UserContext';
+import { formatTime } from '../lib/hooks';
+import type { GameScore } from '../lib/types';
 import SkyBattle from './SkyBattle';
 import TraitorGame from './TraitorGame';
 import HolylandWarfare from './HolylandWarfare';
 
-type GameView = 'hub' | 'skybattle' | 'traitor' | 'warfare';
+type GameId = 'skybattle' | 'traitor' | 'warfare' | null;
 
 export default function GamesHub() {
-  const [selected, setSelected] = useState<GameView>('hub');
+  const { user } = useUser();
+  const [activeGame, setActiveGame] = useState<GameId>(null);
+  const [scores, setScores] = useState<GameScore[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  if (selected === 'skybattle') {
-    return (
-      <div>
-        <div className="px-4 sm:px-6 lg:px-8 pt-4">
-          <button onClick={() => setSelected('hub')} className="btn-ghost inline-flex items-center gap-2 text-sm">
-            <ArrowLeft className="w-4 h-4" /> Arcade
-          </button>
-        </div>
-        <SkyBattle />
-      </div>
-    );
-  }
+  useEffect(() => {
+    const loadScores = async () => {
+      const { data } = await supabase.from('game_scores').select('*').order('score', { ascending: false }).limit(20);
+      if (data) setScores(data as GameScore[]);
+      setLoading(false);
+    };
+    loadScores();
+  }, []);
 
-  if (selected === 'traitor') {
-    return (
-      <div>
-        <div className="px-4 sm:px-6 lg:px-8 pt-4">
-          <button onClick={() => setSelected('hub')} className="btn-ghost inline-flex items-center gap-2 text-sm">
-            <ArrowLeft className="w-4 h-4" /> Arcade
-          </button>
-        </div>
-        <TraitorGame />
-      </div>
-    );
-  }
+  const submitScore = async (game: string, score: number) => {
+    if (!user) return;
+    await supabase.from('game_scores').insert({ profile_id: user.id, profile_name: user.name, game, score });
+    const { data } = await supabase.from('game_scores').select('*').order('score', { ascending: false }).limit(20);
+    if (data) setScores(data as GameScore[]);
+  };
 
-  if (selected === 'warfare') {
-    return (
-      <div>
-        <div className="px-4 sm:px-6 lg:px-8 pt-4">
-          <button onClick={() => setSelected('hub')} className="btn-ghost inline-flex items-center gap-2 text-sm">
-            <ArrowLeft className="w-4 h-4" /> Arcade
-          </button>
-        </div>
-        <HolylandWarfare />
-      </div>
-    );
-  }
+  if (activeGame === 'skybattle') return <SkyBattle onBack={() => setActiveGame(null)} onScore={(s) => submitScore('Sky Battle', s)} />;
+  if (activeGame === 'traitor') return <TraitorGame onBack={() => setActiveGame(null)} onScore={(s) => submitScore('Traitor Game', s)} />;
+  if (activeGame === 'warfare') return <HolylandWarfare onBack={() => setActiveGame(null)} onScore={(s) => submitScore('Holyland Warfare', s)} />;
+
+  const games = [
+    { id: 'skybattle' as const, name: 'Sky Battle', desc: 'Pilot your ship, dodge asteroids, shoot enemies', icon: '✈️', color: 'from-blue-600 to-cyan-600' },
+    { id: 'traitor' as const, name: 'Traitor Game', desc: 'Social deduction — find the traitor among you', icon: '🕵️', color: 'from-rose-600 to-amber-600' },
+    { id: 'warfare' as const, name: 'Holyland Warfare', desc: 'Strategic turn-based combat', icon: '⚔️', color: 'from-amber-600 to-orange-600' },
+  ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="w-10 h-10 rounded-xl nav-gradient flex items-center justify-center">
-          <Plane className="w-5 h-5 text-cream" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-cream">Arcade</h2>
-          <p className="text-xs text-slate-500">Multiplayer games for lounge members</p>
-        </div>
+    <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Gamepad2 className="w-6 h-6 text-blue-400" />
+        <h2 className="text-xl font-bold text-cream">Arcade</h2>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Sky Battle */}
-        <button
-          onClick={() => setSelected('skybattle')}
-          className="group glass-strong rounded-3xl p-6 text-left relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:border-blue-500/40 animate-slide-up"
-        >
-          <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-blue-500/20 blur-3xl group-hover:bg-blue-500/30 transition-colors" />
-          <div className="relative">
-            <div className="w-14 h-14 rounded-2xl nav-gradient flex items-center justify-center mb-4">
-              <Plane className="w-7 h-7 text-cream" />
+      <div className="grid grid-cols-1 gap-3">
+        {games.map((game) => (
+          <button key={game.id} onClick={() => setActiveGame(game.id)}
+            className="glass-strong rounded-2xl p-5 flex items-center gap-4 hover:bg-slate-800/60 transition-all duration-200 hover:scale-[1.02] animate-fade-in text-left">
+            <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${game.color} flex items-center justify-center text-2xl shrink-0`}>
+              {game.icon}
             </div>
-            <h3 className="text-xl font-bold text-cream mb-1">Sky Battle</h3>
-            <p className="text-sm text-slate-400 mb-4">Infinite Dogfight</p>
-            <p className="text-sm text-slate-500 mb-4">
-              Pilot a custom plane in an endless scrolling sky. Dodge enemy fire and blast opponents.
-              First to 5 hits is eliminated. Real-time multiplayer with live scoreboard.
-            </p>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs">
-                <Users className="w-3 h-3" /> Multiplayer
-              </span>
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-cream">{game.name}</h3>
+              <p className="text-xs text-slate-400 mt-1">{game.desc}</p>
             </div>
-            <div className="flex items-center gap-2 text-blue-400 text-sm font-medium group-hover:gap-3 transition-all">
-              Launch Game
-            </div>
-          </div>
-        </button>
+            <Play className="w-5 h-5 text-blue-400 shrink-0" />
+          </button>
+        ))}
+      </div>
 
-        {/* The Traitor */}
-        <button
-          onClick={() => setSelected('traitor')}
-          className="group glass-strong rounded-3xl p-6 text-left relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:border-rose-500/40 animate-slide-up"
-          style={{ animationDelay: '0.1s' }}
-        >
-          <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-rose-500/20 blur-3xl group-hover:bg-rose-500/30 transition-colors" />
-          <div className="relative">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center mb-4">
-              <Users className="w-7 h-7 text-cream" />
-            </div>
-            <h3 className="text-xl font-bold text-cream mb-1">The Traitor</h3>
-            <p className="text-sm text-slate-400 mb-4">Social Deduction</p>
-            <p className="text-sm text-slate-500 mb-4">
-              Secret roles are assigned. Complete tasks as crew, or sabotage as the traitor.
-              Debate who's suspicious, then vote them out before it's too late.
-            </p>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 text-xs">
-                <Users className="w-3 h-3" /> 3-8 Players
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-rose-400 text-sm font-medium group-hover:gap-3 transition-all">
-              Enter Game
-            </div>
+      <div className="glass-strong rounded-2xl p-4">
+        <h3 className="text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
+          <Trophy className="w-4 h-4 text-amber-400" /> Leaderboard
+        </h3>
+        {loading ? (
+          <div className="flex items-center justify-center py-8"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : scores.length === 0 ? (
+          <p className="text-center text-slate-500 text-sm py-8">No scores yet. Play a game!</p>
+        ) : (
+          <div className="space-y-2">
+            {scores.map((s, i) => (
+              <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-lg glass animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm font-bold ${i === 0 ? 'text-amber-400' : i === 1 ? 'text-slate-300' : i === 2 ? 'text-amber-700' : 'text-slate-500'}`}>
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                  </span>
+                  <span className="text-sm text-slate-200">{s.profile_name}</span>
+                  <span className="text-xs text-slate-500">{s.game}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-amber-400">{s.score}</span>
+                  <span className="text-xs text-slate-600">{formatTime(s.created_at)}</span>
+                </div>
+              </div>
+            ))}
           </div>
-        </button>
-
-        {/* Holyland Warfare (NEW) */}
-        <button
-          onClick={() => setSelected('warfare')}
-          className="group glass-strong rounded-3xl p-6 text-left relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:border-amber-500/40 animate-slide-up"
-          style={{ animationDelay: '0.2s' }}
-        >
-          <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-amber-500/20 blur-3xl group-hover:bg-amber-500/30 transition-colors" />
-          <div className="relative">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center mb-4">
-              <ShieldAlert className="w-7 h-7 text-cream" />
-            </div>
-            <h3 className="text-xl font-bold text-cream mb-1">Holyland Warfare</h3>
-            <p className="text-sm text-slate-400 mb-4">Tactical Arena Shooter</p>
-            <p className="text-sm text-slate-500 mb-4">
-              Battlefield-style squad skirmish. Move with WASD, aim with mouse or touch, survive enemy waves, and rack up high scores.
-            </p>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs">
-                <Users className="w-3 h-3" /> Action
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-amber-400 text-sm font-medium group-hover:gap-3 transition-all">
-              Deploy Now
-            </div>
-          </div>
-        </button>
+        )}
       </div>
     </div>
   );

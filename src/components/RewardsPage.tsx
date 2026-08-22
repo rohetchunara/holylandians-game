@@ -1,19 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Gift, Star, Check, History, Sparkles } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Gift, Plus, Trash2, Star, Check, ShoppingBag } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
+import { formatTime } from '../lib/hooks';
 import type { Reward, RewardRedemption } from '../lib/types';
 
-const ICON_MAP: Record<string, string> = {
-  crown: '👑',
-  sparkles: '✨',
-  'trending-up': '📈',
-  palette: '🎨',
-  zap: '⚡',
-  rocket: '🚀',
-  smile: '😄',
-  plane: '✈️',
-  gift: '🎁',
+const ICONS: Record<string, string> = {
+  gift: '🎁', star: '⭐', crown: '👑', trophy: '🏆', rocket: '🚀', bolt: '⚡', gem: '💎', fire: '🔥',
 };
 
 export default function RewardsPage() {
@@ -21,173 +14,160 @@ export default function RewardsPage() {
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [redemptions, setRedemptions] = useState<RewardRedemption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [redeeming, setRedeeming] = useState<string | null>(null);
-  const [justRedeemed, setJustRedeemed] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [cost, setCost] = useState('');
+  const [icon, setIcon] = useState('gift');
+  const [redeeming, setRedeeming] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const loadRewards = async () => {
+      const [{ data: rewardsData }, { data: redemptionData }] = await Promise.all([
+        supabase.from('rewards').select('*').order('cost', { ascending: true }),
+        supabase.from('reward_redemptions').select('*').order('created_at', { ascending: false }).limit(20),
+      ]);
+      if (rewardsData) setRewards(rewardsData as Reward[]);
+      if (redemptionData) setRedemptions(redemptionData as RewardRedemption[]);
+      setLoading(false);
+    };
     loadRewards();
-    loadRedemptions();
+
+    const channel = supabase
+      .channel('rewards')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'rewards' },
+        (payload) => setRewards((prev) => [...prev, payload.new as Reward].sort((a, b) => a.cost - b.cost)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'rewards' },
+        (payload) => setRewards((prev) => prev.filter((r) => r.id !== payload.old.id)))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reward_redemptions' },
+        (payload) => setRedemptions((prev) => [payload.new as RewardRedemption, ...prev]))
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const loadRewards = async () => {
-    const { data } = await supabase.from('rewards').select('*').order('cost', { ascending: true });
-    if (data) setRewards(data as Reward[]);
-    setLoading(false);
-  };
-
-  const loadRedemptions = async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from('reward_redemptions')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (data) setRedemptions(data as RewardRedemption[]);
+  const handleCreate = async () => {
+    if (!user?.is_admin || !name.trim() || !cost.trim()) return;
+    setError('');
+    const { error: insertError } = await supabase
+      .from('rewards')
+      .insert({ name: name.trim(), description: desc.trim(), cost: parseInt(cost), icon });
+    if (insertError) { setError('Failed to create reward.'); return; }
+    setName(''); setDesc(''); setCost(''); setIcon('gift');
+    setShowCreate(false);
   };
 
   const handleRedeem = async (reward: Reward) => {
-    if (!user) return;
-    if (user.points < reward.cost) {
-      setError(`Not enough points. You need ${reward.cost - user.points} more.`);
-      setTimeout(() => setError(''), 3000);
-      return;
-    }
-
-    setRedeeming(reward.id);
-    setError('');
-
-    const { error: redeemError } = await supabase.from('reward_redemptions').insert({
-      profile_id: user.id,
-      reward_name: reward.name,
-      cost: reward.cost,
-    });
-
-    if (redeemError) {
-      setError('Redemption failed. Try again.');
-      setRedeeming(null);
-      return;
-    }
-
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ points: user.points - reward.cost })
-      .eq('id', user.id);
-
-    setRedeeming(null);
-    if (updateError) {
-      setError('Could not deduct points. Contact admin.');
-      return;
-    }
-
-    setJustRedeemed(reward.id);
-    setTimeout(() => setJustRedeemed(null), 3000);
+    if (!user || (user.points ?? 0) < reward.cost || redeeming) return;
+    setRedeeming(true); setError('');
+    const { error: redeemError } = await supabase
+      .from('reward_redemptions')
+      .insert({ profile_id: user.id, reward_name: reward.name, cost: reward.cost });
+    if (redeemError) { setError('Failed to redeem.'); setRedeeming(false); return; }
+    await supabase.from('profiles').update({ points: (user.points ?? 0) - reward.cost }).eq('id', user.id);
     await refreshUser();
-    await loadRedemptions();
+    setRedeeming(false);
   };
 
-  if (!user) return null;
+  const handleDelete = async (reward: Reward) => {
+    if (!user?.is_admin) return;
+    await supabase.from('rewards').delete().eq('id', reward.id);
+  };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
-      {/* points header */}
-      <div className="glass-strong rounded-3xl p-6 sm:p-8 mb-6 relative overflow-hidden animate-slide-up">
-        <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-amber-500/20 blur-3xl" />
-        <div className="relative flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 flex items-center justify-center">
-            <Star className="w-8 h-8 text-amber-400" />
-          </div>
-          <div>
-            <p className="text-sm text-slate-400">Your Points Balance</p>
-            <h2 className="text-4xl font-bold text-amber-400">{user.points}</h2>
-            <p className="text-xs text-slate-500 mt-1">Earn more by chatting, uploading, and playing games!</p>
-          </div>
+    <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Gift className="w-6 h-6 text-blue-400" />
+          <h2 className="text-xl font-bold text-cream">Rewards Store</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="px-3 py-1.5 rounded-xl glass text-amber-400 text-sm font-bold">{user?.points ?? 0} pts</div>
+          {user?.is_admin && (
+            <button onClick={() => setShowCreate(!showCreate)} className="btn-primary px-3 py-1.5 flex items-center gap-1 text-sm">
+              <Plus className="w-4 h-4" /> Add
+            </button>
+          )}
         </div>
       </div>
 
-      {error && (
-        <div className="glass rounded-xl p-3 mb-4 text-rose-400 text-sm flex items-center gap-2 animate-fade-in">
-          <span>{error}</span>
+      {showCreate && user?.is_admin && (
+        <div className="glass-strong rounded-2xl p-4 space-y-3 animate-slide-up">
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Reward name" className="input-field" />
+          <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description" rows={2} className="input-field resize-none" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Cost (points)</label>
+              <input type="number" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="100" className="input-field" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Icon</label>
+              <select value={icon} onChange={(e) => setIcon(e.target.value)} className="input-field">
+                {Object.keys(ICONS).map((k) => <option key={k} value={k} className="bg-slate-900">{ICONS[k]} {k}</option>)}
+              </select>
+            </div>
+          </div>
+          {error && <p className="text-xs text-rose-400">{error}</p>}
+          <div className="flex gap-2">
+            <button onClick={() => setShowCreate(false)} className="btn-ghost flex-1">Cancel</button>
+            <button onClick={handleCreate} className="btn-primary flex-1">Create Reward</button>
+          </div>
         </div>
       )}
-
-      {/* rewards grid */}
-      <h3 className="text-lg font-bold text-cream mb-4 flex items-center gap-2">
-        <Gift className="w-5 h-5 text-blue-400" /> Available Rewards
-      </h3>
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : rewards.length === 0 ? (
+        <div className="text-center py-20 text-slate-500">
+          <Gift className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p>No rewards yet. {user?.is_admin ? 'Add some for the community!' : 'Check back soon!'}</p>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {rewards.map((reward) => {
-            const affordable = user.points >= reward.cost;
-            const redeemed = justRedeemed === reward.id;
+            const canAfford = (user?.points ?? 0) >= reward.cost;
             return (
-              <div
-                key={reward.id}
-                className={`glass rounded-2xl p-5 flex flex-col transition-all duration-200 ${
-                  affordable ? 'hover:scale-[1.02] hover:border-blue-500/40' : 'opacity-60'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-2xl">
-                    {ICON_MAP[reward.icon] ?? '🎁'}
-                  </div>
-                  <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-sm font-bold">
-                    <Star className="w-3 h-3" /> {reward.cost}
-                  </span>
-                </div>
-                <h4 className="text-cream font-bold mb-1">{reward.name}</h4>
-                <p className="text-sm text-slate-400 mb-4 flex-1">{reward.description}</p>
-                <button
-                  onClick={() => handleRedeem(reward)}
-                  disabled={!affordable || redeeming === reward.id}
-                  className={`w-full py-2.5 rounded-xl font-medium text-sm transition-all ${
-                    redeemed
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : affordable
-                      ? 'btn-primary'
-                      : 'bg-slate-800/60 text-slate-500 cursor-not-allowed'
-                  }`}
-                >
-                  {redeemed ? (
-                    <span className="flex items-center justify-center gap-1"><Check className="w-4 h-4" /> Redeemed!</span>
-                  ) : redeeming === reward.id ? (
-                    'Processing...'
-                  ) : affordable ? (
-                    'Redeem Now'
-                  ) : (
-                    `Need ${reward.cost - user.points} more`
+              <div key={reward.id} className="glass-strong rounded-2xl p-4 animate-fade-in">
+                <div className="flex items-start justify-between">
+                  <div className="text-3xl">{ICONS[reward.icon] ?? '🎁'}</div>
+                  {user?.is_admin && (
+                    <button onClick={() => handleDelete(reward)} className="text-slate-500 hover:text-rose-400 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
-                </button>
+                </div>
+                <h3 className="text-sm font-bold text-cream mt-2">{reward.name}</h3>
+                {reward.description && <p className="text-xs text-slate-400 mt-1">{reward.description}</p>}
+                <div className="flex items-center justify-between mt-3">
+                  <p className="text-lg font-bold text-amber-400 flex items-center gap-1">
+                    <Star className="w-4 h-4" />{reward.cost}
+                  </p>
+                  <button onClick={() => handleRedeem(reward)} disabled={!canAfford || redeeming}
+                    className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${canAfford ? 'btn-primary' : 'glass text-slate-500 cursor-not-allowed'}`}>
+                    {canAfford ? <span className="flex items-center gap-1"><ShoppingBag className="w-3.5 h-3.5" /> Redeem</span> : 'Not enough pts'}
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
       )}
 
-      {/* redemption history */}
       {redemptions.length > 0 && (
-        <div className="glass rounded-2xl p-6">
-          <h3 className="text-lg font-bold text-cream mb-4 flex items-center gap-2">
-            <History className="w-5 h-5 text-slate-400" /> Redemption History
+        <div className="mt-6">
+          <h3 className="text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
+            <Check className="w-4 h-4 text-blue-400" /> Recent Redemptions
           </h3>
           <div className="space-y-2">
             {redemptions.map((r) => (
-              <div key={r.id} className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800/40">
-                <div className="flex items-center gap-3">
-                  <Sparkles className="w-5 h-5 text-blue-400" />
-                  <span className="text-cream text-sm font-medium">{r.reward_name}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-amber-400 text-sm font-bold">-{r.cost} pts</span>
-                  <span className="text-xs text-slate-500">
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </span>
+              <div key={r.id} className="glass rounded-xl px-4 py-2.5 flex items-center justify-between animate-fade-in">
+                <span className="text-sm text-slate-200">{r.reward_name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-amber-400">-{r.cost} pts</span>
+                  <span className="text-xs text-slate-500">{formatTime(r.created_at)}</span>
                 </div>
               </div>
             ))}

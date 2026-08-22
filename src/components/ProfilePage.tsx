@@ -1,218 +1,211 @@
-import { useEffect, useState } from 'react';
-import { User, Star, Trophy, Calendar, Save, Check } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { BadgeCheck, GraduationCap, BookOpen, Calendar, Award, CreditCard as Edit3, Save, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
-import { COLOR_THEMES, getTheme } from '../lib/colors';
+import { useUploadMedia, formatTime } from '../lib/hooks';
+import { getTheme, COLOR_THEMES } from '../lib/colors';
 import type { GameScore } from '../lib/types';
 
 export default function ProfilePage() {
-  const { user, setUser, refreshUser } = useUser();
-  const [scores, setScores] = useState<GameScore[]>([]);
-  const [editName, setEditName] = useState(user?.name ?? '');
-  const [editAvatar, setEditAvatar] = useState(user?.avatar_url ?? '');
-  const [editColor, setEditColor] = useState(user?.color_theme ?? 'blue');
+  const { user, refreshUser } = useUser();
+  const [editing, setEditing] = useState(false);
+  const [bio, setBio] = useState(user?.bio ?? '');
+  const [gpa, setGpa] = useState(user?.gpa ?? '');
+  const [grade, setGrade] = useState(user?.grade ?? '');
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url ?? '');
+  const [colorTheme, setColorTheme] = useState(user?.color_theme ?? 'blue');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [nameError, setNameError] = useState('');
-
-  const theme = getTheme(editColor);
+  const [error, setError] = useState('');
+  const [followers, setFollowers] = useState(0);
+  const [following, setFollowing] = useState(0);
+  const [scores, setScores] = useState<GameScore[]>([]);
+  const { upload, uploading } = useUploadMedia();
 
   useEffect(() => {
     if (!user) return;
-    setEditName(user.name);
-    setEditAvatar(user.avatar_url ?? '');
-    setEditColor(user.color_theme);
-    loadScores();
+    Promise.all([
+      supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', user.id),
+      supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', user.id),
+      supabase.from('game_scores').select('*').eq('profile_id', user.id).order('created_at', { ascending: false }).limit(10),
+    ]).then(([f, fw, s]) => {
+      setFollowers(f.count ?? 0);
+      setFollowing(fw.count ?? 0);
+      if (s.data) setScores(s.data as GameScore[]);
+    });
   }, [user]);
 
-  const loadScores = async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from('game_scores')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('score', { ascending: false })
-      .limit(10);
-    if (data) setScores(data as GameScore[]);
-  };
+  if (!user) return null;
+  const theme = getTheme(user.color_theme);
 
   const handleSave = async () => {
-    if (!user) return;
-    setSaving(true);
-    setNameError('');
-
-    if (editName.trim() !== user.name) {
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('name', editName.trim())
-        .neq('id', user.id)
-        .maybeSingle();
-      if (existing) {
-        setNameError('That name is already taken.');
-        setSaving(false);
-        return;
-      }
-    }
-
-    const { data, error } = await supabase
+    setSaving(true); setError('');
+    const { error: updateError } = await supabase
       .from('profiles')
-      .update({
-        name: editName.trim(),
-        avatar_url: editAvatar.trim() || null,
-        color_theme: editColor,
-      })
-      .eq('id', user.id)
-      .select('*')
-      .maybeSingle();
-
+      .update({ bio: bio.trim() || null, gpa: gpa.trim() || null, grade: grade.trim() || null, avatar_url: avatarUrl || null, color_theme: colorTheme })
+      .eq('id', user.id);
     setSaving(false);
-    if (error || !data) {
-      setNameError('Could not save. Try again.');
-      return;
-    }
-    setUser(data as typeof user);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (updateError) { setError('Failed to save.'); return; }
+    await refreshUser();
+    setEditing(false);
   };
 
-  if (!user) return null;
-
-  const bestSky = scores.find((s) => s.game === 'sky_battle')?.score ?? 0;
-  const bestTraitor = scores.filter((s) => s.game === 'traitor').length;
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const result = await upload(file);
+    if (result) setAvatarUrl(result.url);
+  };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
-      {/* hero card */}
-      <div className="glass-strong rounded-3xl p-6 sm:p-8 mb-6 relative overflow-hidden animate-slide-up">
-        <div
-          className="absolute -top-20 -right-20 w-60 h-60 rounded-full opacity-20 blur-3xl"
-          style={{ background: `linear-gradient(135deg, ${theme.from}, ${theme.to})` }}
-        />
-        <div className="relative flex flex-col sm:flex-row items-center gap-6">
-          {editAvatar ? (
-            <img src={editAvatar} alt="" className="w-24 h-24 rounded-2xl object-cover ring-4 ring-blue-500/20" />
-          ) : (
-            <div
-              className="w-24 h-24 rounded-2xl flex items-center justify-center text-4xl font-bold text-cream"
-              style={{ background: `linear-gradient(135deg, ${theme.from}, ${theme.to})` }}
-            >
-              {user.name.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <div className="text-center sm:text-left flex-1">
-            <h2 className="text-2xl font-bold text-cream">{user.name}</h2>
-            <div className="flex items-center justify-center sm:justify-start gap-3 mt-2 flex-wrap">
-              <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-sm font-medium">
-                <Star className="w-4 h-4" /> {user.points} pts
-              </span>
-              {user.is_admin && (
-                <span className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-sm font-medium">
-                  Moderator
-                </span>
+    <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <div className="glass-strong rounded-3xl p-6 animate-slide-up">
+        <div className="flex flex-col items-center text-center">
+          <div className="relative">
+            {avatarUrl || user.avatar_url ? (
+              <img src={avatarUrl || user.avatar_url!} alt="" className="w-24 h-24 rounded-2xl object-cover ring-2 ring-blue-400/40" />
+            ) : (
+              <div className="w-24 h-24 rounded-2xl flex items-center justify-center text-3xl font-bold text-cream" style={{ background: `linear-gradient(135deg, ${theme.from}, ${theme.to})` }}>
+                {user.name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            {user.verified && <BadgeCheck className="absolute -bottom-1 -right-1 w-7 h-7 text-blue-400 bg-slate-950 rounded-full p-0.5" />}
+          </div>
+          <div className="flex items-center gap-1.5 mt-3">
+            <h2 className="text-xl font-bold text-cream">{user.name}</h2>
+            {user.verified && <BadgeCheck className="w-5 h-5 text-blue-400" />}
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Joined {formatTime(user.created_at)}</p>
+          {user.is_admin && <span className="mt-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">Admin</span>}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mt-6">
+          <div className="text-center p-3 rounded-xl glass">
+            <p className="text-2xl font-bold text-amber-400">{user.points}</p>
+            <p className="text-xs text-slate-500 mt-1">Points</p>
+          </div>
+          <div className="text-center p-3 rounded-xl glass">
+            <p className="text-2xl font-bold text-blue-400">{followers}</p>
+            <p className="text-xs text-slate-500 mt-1">Followers</p>
+          </div>
+          <div className="text-center p-3 rounded-xl glass">
+            <p className="text-2xl font-bold text-blue-400">{following}</p>
+            <p className="text-xs text-slate-500 mt-1">Following</p>
+          </div>
+        </div>
+
+        {!editing ? (
+          <>
+            {user.bio && <p className="text-sm text-slate-300 mt-4 text-center">{user.bio}</p>}
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              {user.gpa && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl glass">
+                  <GraduationCap className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs text-slate-400">GPA: <span className="text-cream font-medium">{user.gpa}</span></span>
+                </div>
               )}
-              <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-slate-700/40 text-slate-400 text-sm">
-                <Calendar className="w-4 h-4" />
-                {new Date(user.created_at).toLocaleDateString()}
-              </span>
+              {user.grade && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl glass">
+                  <BookOpen className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs text-slate-400">Grade: <span className="text-cream font-medium">{user.grade}</span></span>
+                </div>
+              )}
+              {user.student_status && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl glass">
+                  <Calendar className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs text-slate-400">{user.student_status === 'current' ? 'Current Student' : 'Ex-Student'}</span>
+                </div>
+              )}
+            </div>
+            <button onClick={() => setEditing(true)} className="btn-ghost w-full mt-4 flex items-center justify-center gap-2">
+              <Edit3 className="w-4 h-4" /> Edit Profile
+            </button>
+          </>
+        ) : (
+          <div className="space-y-3 mt-4 animate-fade-in">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Avatar</label>
+              <input type="file" accept="image/*" onChange={handleAvatarUpload} className="text-xs text-slate-400 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-blue-500/20 file:text-blue-300" />
+              {uploading && <p className="text-xs text-blue-400 mt-1">Uploading...</p>}
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Bio</label>
+              <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={2} className="input-field resize-none text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">GPA</label>
+                <input type="text" value={gpa} onChange={(e) => setGpa(e.target.value)} className="input-field text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Grade</label>
+                <input type="text" value={grade} onChange={(e) => setGrade(e.target.value)} className="input-field text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Color Theme</label>
+              <div className="grid grid-cols-3 gap-2">
+                {COLOR_THEMES.map((t) => (
+                  <button key={t.id} onClick={() => setColorTheme(t.id)}
+                    className={`rounded-lg p-2 transition-all ${colorTheme === t.id ? 'ring-2 ring-blue-400' : 'ring-1 ring-slate-700'}`}>
+                    <div className="w-full h-6 rounded" style={{ background: `linear-gradient(135deg, ${t.from}, ${t.to})` }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            {error && <p className="text-xs text-rose-400">{error}</p>}
+            <div className="flex gap-2">
+              <button onClick={() => { setEditing(false); setBio(user.bio ?? ''); setGpa(user.gpa ?? ''); setGrade(user.grade ?? ''); }} className="btn-ghost flex-1 flex items-center justify-center gap-1">
+                <X className="w-4 h-4" /> Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-1">
+                <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        <StatCard icon={Star} label="Points" value={user.points} color="amber" />
-        <StatCard icon={Trophy} label="Sky Battle Best" value={bestSky} color="blue" />
-        <StatCard icon={User} label="Traitor Games" value={bestTraitor} color="rose" />
-        <StatCard icon={Trophy} label="Total Scores" value={scores.length} color="emerald" />
-      </div>
-
-      {/* edit form */}
-      <div className="glass rounded-2xl p-6 mb-6">
-        <h3 className="text-lg font-bold text-cream mb-4">Edit Profile</h3>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-slate-300 mb-2 font-medium">Display Name</label>
-            <input
-              type="text"
-              value={editName}
-              onChange={(e) => { setEditName(e.target.value); setNameError(''); }}
-              className="input-field"
-            />
-            {nameError && <p className="text-rose-400 text-sm mt-1">{nameError}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm text-slate-300 mb-2 font-medium">Avatar URL</label>
-            <input
-              type="text"
-              value={editAvatar}
-              onChange={(e) => setEditAvatar(e.target.value)}
-              placeholder="https://..."
-              className="input-field"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm text-slate-300 mb-2 font-medium">Color Theme</label>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {COLOR_THEMES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setEditColor(t.id)}
-                  className={`rounded-xl p-2 transition-all ${editColor === t.id ? 'ring-2 ring-blue-400 scale-105' : 'ring-1 ring-slate-700'}`}
-                >
-                  <div className="w-full h-8 rounded-lg" style={{ background: `linear-gradient(135deg, ${t.from}, ${t.to})` }} />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
-            {saved ? <><Check className="w-5 h-5" /> Saved!</> : <><Save className="w-5 h-5" /> {saving ? 'Saving...' : 'Save Changes'}</>}
-          </button>
-        </div>
-      </div>
-
-      {/* score history */}
       {scores.length > 0 && (
-        <div className="glass rounded-2xl p-6">
-          <h3 className="text-lg font-bold text-cream mb-4">Score History</h3>
+        <div className="glass-strong rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-slate-300 mb-3 flex items-center gap-2">
+            <Award className="w-4 h-4 text-amber-400" /> Game Scores
+          </h3>
           <div className="space-y-2">
             {scores.map((s) => (
-              <div key={s.id} className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-800/40">
-                <div className="flex items-center gap-3">
-                  <Trophy className="w-5 h-5 text-amber-400" />
-                  <span className="text-cream text-sm font-medium capitalize">
-                    {s.game.replace('_', ' ')}
-                  </span>
+              <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-lg glass">
+                <span className="text-sm text-slate-200">{s.game}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-amber-400">{s.score}</span>
+                  <span className="text-xs text-slate-500">{formatTime(s.created_at)}</span>
                 </div>
-                <span className="text-amber-400 font-bold">{s.score}</span>
               </div>
             ))}
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-function StatCard({ icon: Icon, label, value, color }: { icon: typeof Star; label: string; value: number; color: string }) {
-  const colors: Record<string, string> = {
-    amber: 'text-amber-400 bg-amber-500/10',
-    blue: 'text-blue-400 bg-blue-500/10',
-    rose: 'text-rose-400 bg-rose-500/10',
-    emerald: 'text-emerald-400 bg-emerald-500/10',
-  };
-  return (
-    <div className="glass rounded-2xl p-4 flex flex-col items-center text-center">
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 ${colors[color]}`}>
-        <Icon className="w-5 h-5" />
-      </div>
-      <span className="text-2xl font-bold text-cream">{value}</span>
-      <span className="text-xs text-slate-500">{label}</span>
+      {!user.verified && (
+        <div className="glass-strong rounded-2xl p-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <BadgeCheck className="w-5 h-5 text-blue-400" />
+            <h3 className="text-sm font-bold text-cream">Get Verified</h3>
+          </div>
+          <p className="text-xs text-slate-400 mb-3">Request a verified badge to unlock name changes and show you're a real member.</p>
+          <button
+            onClick={async () => {
+              if (user.verification_requested) return;
+              await supabase.from('verification_requests').insert({ profile_id: user.id, profile_name: user.name, status: 'pending' });
+              await supabase.from('profiles').update({ verification_requested: true }).eq('id', user.id);
+              await refreshUser();
+            }}
+            disabled={user.verification_requested}
+            className={`btn-primary w-full ${user.verification_requested ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {user.verification_requested ? 'Request Sent' : 'Request Verification'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
